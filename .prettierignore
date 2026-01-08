@@ -1,0 +1,16 @@
+# Dependencies
+node_modules
+.expo
+dist
+build
+
+# Test files
+jest.config.ts
+jest.setup.ts
+**/__mocks__/**
+**/__tests__/**
+
+# Generated files
+*.log
+.cache
+
