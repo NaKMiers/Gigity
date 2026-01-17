@@ -1,5 +1,7 @@
 import { SUNO_API_BASE_URL } from '@/constants/common'
 import { ENV } from '@/constants/environments'
+import { LyricsToAudioRequestSchema } from '@/types/input-data'
+import { LyricsToAudioData } from '@/types/output-schemas'
 import { IResponse } from '@/types/response'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -8,16 +10,21 @@ export async function POST(req: NextRequest) {
   console.info('- Lyrics To Audio - ')
 
   try {
-    // Get input data
-    const { lyrics, title, style, model } = await req.json()
+    // Validate request body
+    const body = await req.json()
+    const validation = LyricsToAudioRequestSchema.safeParse(body)
 
-    // Validate lyrics
-    if (!lyrics) {
+    if (!validation.success) {
       return NextResponse.json<IResponse>(
-        { message: 'Lyrics is required', isSuccess: false },
+        {
+          message: 'Invalid request data: ' + validation.error.message,
+          isSuccess: false,
+        },
         { status: 400 }
       )
     }
+
+    const { lyrics, title, style, model } = validation.data
 
     // Call Suno API to generate music
     const response = await fetch(`${SUNO_API_BASE_URL}/generate`, {
@@ -59,24 +66,16 @@ export async function POST(req: NextRequest) {
 
     const data = await response.json()
 
-    console.info('--------------------------------')
-    console.info(JSON.stringify(data, null, 2))
-
     // Return response
-    return NextResponse.json<
-      IResponse<{ lyrics: string; taskId: string; sunoResponse: unknown }>
-    >(
-      {
-        message: 'Lyrics to Audio Success',
-        isSuccess: true,
-        data: {
-          lyrics,
-          taskId: data.taskId,
-          sunoResponse: data,
-        },
+    return NextResponse.json<IResponse<LyricsToAudioData>>({
+      message: 'Lyrics to Audio Success',
+      isSuccess: true,
+      data: {
+        lyrics,
+        taskId: data.taskId || data.data?.taskId || '',
+        sunoResponse: data,
       },
-      { status: 200 }
-    )
+    })
   } catch (error) {
     console.error('Lyrics to Audio error:', error)
     return NextResponse.json<IResponse>(
