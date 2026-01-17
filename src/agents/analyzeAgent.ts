@@ -3,7 +3,7 @@ import { createAgent, SystemMessage } from "langchain";
 import { z } from "zod";
 
 const model = new ChatOpenAI({
-  model: "gpt-5.1",
+  model: "gpt-4o",
   temperature: 0.2,
   maxTokens: 500,
   timeout: 60000, // 60 seconds in milliseconds

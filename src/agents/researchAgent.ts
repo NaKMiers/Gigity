@@ -1,13 +1,28 @@
 import { handleToolErrors } from "@/middlewares/handleToolErrors";
 import { searchTool } from "@/tools/searchTool";
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent, SystemMessage } from "langchain";
+import { createAgent, SystemMessage, toolStrategy } from "langchain";
 import { z } from "zod";
  
+let searchCount = 0;
+const MAX_SEARCH = 1;
+
+const limitedSearchTool = {
+  ...searchTool,
+  async invoke(input: any) {
+    if (searchCount >= MAX_SEARCH) {
+      throw new Error("Search tool usage limit reached (max 1)");
+    }
+    searchCount++;
+    return searchTool.invoke(input);
+  },
+};
+
+
 const model = new ChatOpenAI({
-  model: "gpt-5.1",
+  model: "gpt-4o",
   temperature: 0.1,
-  maxTokens: 1000,
+  maxTokens: 600, //down from 1000 to 600 to save tokens
   timeout: 90000, // 90 seconds in milliseconds
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -23,19 +38,16 @@ const ResearchItemSchema = z.object({
 });
 
 // Wrapper schema that contains array of results
-const ResearchResultSchema = z.object({
+const ResearchResultSchema =toolStrategy( z.object({
   results: z.array(ResearchItemSchema).describe("Danh sách các kết quả tìm kiếm"),
-});
+}));
 
 
 export const researchAgent = createAgent({
   model,
-  tools: [searchTool],
+  tools: [limitedSearchTool],
   middleware: [handleToolErrors], 
-  systemPrompt: new SystemMessage({
-    content: [{
-      type: 'text',
-      text: `You are a professional market research expert. Your task is to search for and compile accurate business information.
+  systemPrompt: new SystemMessage(`You are a professional market research expert. Your task is to search for and compile accurate business information.
 
 When given a query:
 1. Use the industry_search tool to find relevant information
@@ -53,12 +65,8 @@ Return a response with:
   - content: concise summary of key information (focus on business insights)
   - score: relevance score from search
   - published_date: when it was published
-- totalResults: count of results found
-- summary: overall synthesis highlighting the most important findings
 
-Keep content concise and actionable. Focus on business value and insights.`
-    }]
-  }),
+Keep content concise and actionable. Focus on business value and insights.`),
   responseFormat: ResearchResultSchema,
 });
 

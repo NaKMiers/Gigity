@@ -67,7 +67,7 @@ export const searchTool = new DynamicStructuredTool({
       };
       
       console.log(`Returning ${truncatedResults.length} truncated results`);
-      return JSON.stringify(finalResults);
+      return finalResults;
 
     } catch (error) {
       console.error('Search tool error:', error);

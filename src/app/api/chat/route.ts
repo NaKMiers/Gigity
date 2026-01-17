@@ -1,15 +1,14 @@
-import { analyzeAgent } from '@/agents/analyzeAgent';
 import { marketingAgent } from '@/agents/marketingAgent';
-import { researchAgent } from '@/agents/researchAgent';
+import { videoGenerationAgent } from '@/agents/videoGenerationAgent';
 import { UIMessage } from 'ai';
 import { HumanMessage } from 'langchain';
 import { nanoid } from 'nanoid';
 
 // Configure the route to allow longer execution time
-export const maxDuration = 180; // 180 seconds for full flow with marketing agent
+export const maxDuration = 180; // 180 seconds for full flow
 export const dynamic = 'force-dynamic';
 
-// Helper function to add timeout to any promise
+// Helper function to add timeout
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
   return Promise.race([
     promise,
@@ -33,211 +32,145 @@ export async function POST(req: Request) {
       .join(' ');
     
     console.log('User query:', userQuery);
-    console.log('Starting analysis...');
     
-    // Step 1: Analyze the user input with analyzeAgent (with 60s timeout)
-    const analysisResult = await withTimeout(
-      analyzeAgent.invoke({
-        messages: [new HumanMessage(userQuery)]
+    // Step 1: Generate marketing script (audio + video)
+    console.log('Step 1: Generating marketing script...');
+    const scriptResult = await withTimeout(
+      marketingAgent.invoke({
+        messages: [
+          new HumanMessage(`
+Thông tin doanh nghiệp:
+${userQuery}
+
+Hãy tạo kịch bản marketing video ngắn dựa trên thông tin trên.
+`)
+        ],
       }),
       60000,
-      'Analysis'
+      'Marketing Script Generation'
     );
     
-    console.log('Analysis completed:', JSON.stringify(analysisResult.structuredResponse, null, 2));
+    const script = scriptResult.structuredResponse;
+    console.log('✅ Marketing script generated', script);
     
-    // Step 2: Use the optimized prompt for research
-    const optimizedPrompt = analysisResult.structuredResponse.optimizedPrompt;
-    
-    console.log('Starting research with prompt:', optimizedPrompt);
-    
-    // Step 3: Invoke the research agent with the optimized prompt (with 120s timeout)
-    const researchResult = await withTimeout(
-      researchAgent.invoke({
-        messages: [new HumanMessage(optimizedPrompt)]
-      }),
-      120000,
-      'Research'
-    );
-    
-    console.log('Research completed');
-    
-    // Get analysis and research data
-    const analysis = analysisResult.structuredResponse;
-    const research = researchResult.structuredResponse;
-    
-    // Step 4: Generate marketing scenarios with marketingAgent (with 60s timeout)
-    console.log('Starting marketing scenario generation...');
-    
-    // Prepare context for marketing agent
-    const marketingContext = `
-COMPANY INFORMATION:
-${analysis.entities.companyName ? `Company: ${analysis.entities.companyName}` : 'Company not specified'}
-${analysis.entities.industry ? `Industry: ${analysis.entities.industry}` : ''}
-${analysis.entities.location ? `Location: ${analysis.entities.location}` : ''}
+    // Step 2: Generate video production plan from video script
+    console.log('Step 2: Generating video production plan...');
+    const videoPlanResult = await withTimeout(
+      videoGenerationAgent.invoke({
+        messages: [
+          new HumanMessage(`
+Video Script Description:
+${script.video_script_description}
 
-RESEARCH FINDINGS:
-${research.results.map((item: any, idx: number) => `
-${idx + 1}. ${item.title}
-${item.content}
-Source: ${item.url}
+Audio Script:
+${script.audio_script_description}
+
+Hãy tạo một video generation plan chi tiết từ video script trên.
+`)
+        ],
+      }),
+      60000,
+      'Video Generation Planning'
+    );
+    
+    const videoPlan = videoPlanResult.structuredResponse;
+    console.log('✅ Video production plan generated');
+    
+    // Step 3: Format comprehensive response
+    const formattedResponse = `# 🎬 KỊCH BẢN VIDEO MARKETING
+
+## 🎙️ AUDIO SCRIPT (Lời thoại)
+${script.audio_script_description}
+
+---
+
+## 📹 VIDEO SCRIPT (Kịch bản hình ảnh)
+${script.video_script_description}
+
+---
+
+## 🎥 VIDEO PRODUCTION PLAN
+
+**⏱️ Tổng thời lượng:** ${videoPlan.totalDuration}
+**📐 Aspect Ratio:** ${videoPlan.aspectRatio}
+**🎵 Phong cách nhạc:** ${videoPlan.musicStyle}
+
+### 🎬 SCENES (${videoPlan.scenes.length} cảnh)
+
+${videoPlan.scenes.map((scene: any) => `
+**Scene ${scene.sceneNumber}** (${scene.duration})
+📝 Mô tả: ${scene.visualDescription}
+🎨 Image Prompt: "${scene.imagePrompt}"
+${scene.transitionEffect ? `↔️  Transition: ${scene.transitionEffect}` : ''}
 `).join('\n')}
 
-USER INTENT: ${analysis.intent}
-KEYWORDS: ${analysis.entities.keywords.join(', ')}
+### 📝 TEXT OVERLAYS
 
-Based on the above research, create detailed marketing scenarios for this business.
-`;
+${videoPlan.textOverlays.map((overlay: any) => `
+- **Scene ${overlay.sceneNumber}:** "${overlay.text}" (${overlay.style})
+`).join('\n')}
 
-    const marketingResult = await withTimeout(
-      marketingAgent.invoke({
-        messages: [new HumanMessage(marketingContext)]
-      }),
-      60000,
-      'Marketing Scenario Generation'
-    );
-    
-    console.log('Marketing scenario generation completed');
-    
-    // Step 5: Format the comprehensive response
-    const marketing = marketingResult.structuredResponse;
-    
-    // Create a formatted text response with all information
-    const responseText = `🔍 **PHÂN TÍCH**
-Intent: ${analysis.intent}
-${analysis.entities.companyName ? `Công ty: ${analysis.entities.companyName}` : ''}
-${analysis.entities.industry ? `Ngành: ${analysis.entities.industry}` : ''}
-${analysis.entities.location ? `Khu vực: ${analysis.entities.location}` : ''}
-${analysis.entities.keywords.length > 0 ? `Keywords: ${analysis.entities.keywords.join(', ')}` : ''}
+### 📢 CALL TO ACTION
+**Text:** ${videoPlan.callToAction.text}
+**Vị trí:** ${videoPlan.callToAction.position}
 
-📊 **NGHIÊN CỨU THỊ TRƯỜNG** (${research.results.length || 0} kết quả)
-
-${research.results && Array.isArray(research.results) ? research.results.map((item: any, idx: number) => `
-${idx + 1}. **${item.title}**
-   ${item.content}
-   🔗 ${item.url}`).join('\n\n') : 'Không tìm thấy kết quả'}
+### 🎵 AUDIO DESCRIPTION
+${videoPlan.audioDescription}
 
 ---
 
-🎯 **KỊCH BẢN MARKETING**
+## 💡 NEXT STEPS
 
-**📋 Bối cảnh công ty:**
-${marketing.companyContext}
+1. **Generate Images/Videos:** Sử dụng các image prompts ở trên với:
+   - Stable Diffusion / Midjourney
+   - Leonardo AI
+   - DALL-E 3
 
-**💡 Insights thị trường:**
-${marketing.marketInsights}
+2. **Video Editing:** Sử dụng:
+   - CapCut / Adobe Premiere
+   - Remotion (code-based)
+   - Descript (AI-based)
 
-**🎨 Chiến lược tổng thể:**
-${marketing.overallStrategy}
+3. **Add Audio:** 
+   - Text-to-Speech: ElevenLabs, Google TTS
+   - Nhạc nền: Epidemic Sound, Artlist
 
-**💰 Đề xuất ngân sách:**
-${marketing.budgetRecommendation}
-
----
-
-${marketing.campaigns.map((campaign: any, idx: number) => `
-## 🚀 CHIẾN DỊCH ${idx + 1}: ${campaign.campaignName}
-
-**Mục tiêu:** ${campaign.objective}
-
-**Đối tượng mục tiêu:**
-- Demographic: ${campaign.targetAudience.demographic}
-- Psychographic: ${campaign.targetAudience.psychographic}
-- Pain Points:
-${campaign.targetAudience.painPoints.map((p: string) => `  • ${p}`).join('\n')}
-
-**Key Messages:**
-${campaign.keyMessages.map((msg: string) => `• ${msg}`).join('\n')}
-
-**Kênh Marketing:**
-${campaign.channels.map((ch: any) => `
-📱 **${ch.name}**
-   Chiến lược: ${ch.strategy}
-   Ngân sách: ${ch.budget}`).join('\n')}
-
-**Ý tưởng nội dung:**
-${campaign.contentIdeas.map((content: any, i: number) => `
-${i + 1}. **[${content.type}] ${content.title}**
-   ${content.description}
-   CTA: "${content.cta}"`).join('\n')}
-
-**Timeline:**
-• Chuẩn bị: ${campaign.timeline.preparation}
-• Ra mắt: ${campaign.timeline.launch}
-• Thời lượng: ${campaign.timeline.duration}
-
-**KPIs:**
-${campaign.kpis.map((kpi: any) => `• ${kpi.metric}: ${kpi.target}`).join('\n')}
-
-**Lợi thế cạnh tranh:**
-${campaign.competitiveAdvantage}
-
-**Rủi ro & giảm thiểu:**
-${campaign.risks.map((risk: string) => `• ${risk}`).join('\n')}
-`).join('\n\n---\n')}`.trim();
+4. **Final Export:** ${videoPlan.aspectRatio} cho TikTok/Reels/YouTube Shorts
+`.trim();
     
-    // Return in the format expected by useChat
     const responseMessage = {
       id: nanoid(),
       role: 'assistant',
       parts: [
         {
           type: 'text',
-          text: responseText
+          text: formattedResponse
         }
       ]
     };
     
     return new Response(JSON.stringify({
-      messages: [responseMessage]
+      messages: [responseMessage],
+      metadata: {
+        script: script,
+        videoPlan: videoPlan,
+      }
     }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-      }
+      },
     });
+    
   } catch (error) {
-    console.error('Error in chat API:', error);
-    
-    // Determine error message based on error type
-    let errorText = '❌ An error occurred while processing your request.';
-    
-    if (error instanceof Error) {
-      if (error.message.includes('timeout')) {
-        errorText = `⏱️ Request timed out. The search is taking longer than expected. Please try:\n\n` +
-                   `1. A more specific query\n` +
-                   `2. Asking about a well-known company\n` +
-                   `3. Trying again in a moment\n\n` +
-                   `Error: ${error.message}`;
-      } else if (error.message.includes('OPENAI_API_KEY') || error.message.includes('TAVILY_API_KEY')) {
-        errorText = `🔑 API Key Error: Please ensure your API keys are properly configured in the environment variables.\n\n` +
-                   `Required keys:\n` +
-                   `- OPENAI_API_KEY\n` +
-                   `- TAVILY_API_KEY`;
-      } else {
-        errorText = `❌ Error: ${error.message}\n\nPlease try again or rephrase your query.`;
-      }
-    }
-    
-    // Return error in the same format
-    const errorMessage = {
-      id: nanoid(),
-      role: 'assistant',
-      parts: [
-        {
-          type: 'text',
-          text: errorText
+      console.error('Error:', error);
+      return new Response(JSON.stringify({
+        error: 'Internal server error'
+      }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json',
         }
-      ]
-    };
-    
-    return new Response(JSON.stringify({
-      messages: [errorMessage]
-    }), {
-      status: 200, // Still return 200 so the UI can display the error message
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
-  }
+      });
+    }
 }
